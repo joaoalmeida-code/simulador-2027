@@ -103,6 +103,10 @@
   .soma-erro { color: var(--red) !important; font-weight: 700; }
   .uso-alto { background: #F6DCCB !important; color: var(--red) !important; font-weight: 700; }
   .uso-medio { background: #FFF2CC !important; }
+  table.grade td.mc { font-weight: 700; }
+  table.grade td.mc-ok { background: var(--tint) !important; color: var(--green); }
+  table.grade td.mc-baixa { background: #FFF2CC !important; color: #7A5B12; }
+  table.grade td.mc-neg { background: #F6DCCB !important; color: var(--red); }
 
   input.in, select.in { width: 100%; min-width: 4.2rem; border: 1px solid #E3D9AE; background: var(--entrada); padding: .3rem .35rem; font-size: .8rem; font-family: inherit; text-align: right; border-radius: 3px; color: var(--ink); }
   input.in.txt { text-align: left; min-width: 16rem; }
@@ -290,7 +294,7 @@ function calcularCenario(estado, s) {
 
   const avs = estado.avenidas.map(av => {
     const canal = av.canal.toLowerCase();
-    let fat = zeros12(), ciclo, mcPct, cmvUsado;
+    let fat = zeros12(), ciclo, mcPct, cmvUsado, cmvEfetivo, dedEfetiva, custoCiclo;
 
     if (av.origem === 'lefruit') {
       const p = paramLeFruit(estado, s, av.canal);
@@ -299,7 +303,10 @@ function calcularCenario(estado, s) {
       fat = fat.map((_, m) => entra * serie[m] * growth[m]);
       ciclo = Math.max(0, p.ciclo - alv.reducaoCiclo[s]);
       cmvUsado = p.cmv;
-      mcPct = 1 - p.cmv * (1 - alv.reducaoCMV[s]) - p.ded * (1 - alv.reducaoDeducoes[s]) - ciclo / 30 * cc;
+      cmvEfetivo = p.cmv * (1 - alv.reducaoCMV[s]);
+      dedEfetiva = p.ded * (1 - alv.reducaoDeducoes[s]);
+      custoCiclo = ciclo / 30 * cc;
+      mcPct = 1 - cmvEfetivo - dedEfetiva - custoCiclo;
     } else {
       const f = av.finos;
       ciclo = Math.max(0, av.ciclo - f.deltaCiclo - alv.reducaoCiclo[s]);
@@ -314,12 +321,14 @@ function calcularCenario(estado, s) {
         fat = fat.map((_, m) => anual * av.curva[m] * (1 + f.receita) * growth[m]);
         cmvUsado = av.cmv;
       }
-      mcPct = 1 - cmvUsado * (1 - f.redCMV) * (1 - alv.reducaoCMV[s])
-                - av.deducoes * (1 - f.redDeducoes) * (1 - alv.reducaoDeducoes[s])
-                - ciclo / 30 * cc;
+      cmvEfetivo = cmvUsado * (1 - f.redCMV) * (1 - alv.reducaoCMV[s]);
+      dedEfetiva = av.deducoes * (1 - f.redDeducoes) * (1 - alv.reducaoDeducoes[s]);
+      custoCiclo = ciclo / 30 * cc;
+      mcPct = 1 - cmvEfetivo - dedEfetiva - custoCiclo;
     }
     const fatAno = soma(fat);
-    return { av, fat, fatAno, ciclo, mcPct, cmvUsado, mcAno: fatAno * mcPct };
+    // cmvEfetivo/dedEfetiva/custoCiclo = os 3 termos da MC%, já com ajustes finos e alavancas (para a UI mostrar a cascata)
+    return { av, fat, fatAno, ciclo, mcPct, cmvUsado, cmvEfetivo, dedEfetiva, custoCiclo, mcAno: fatAno * mcPct };
   });
 
   // 6. agregados mensais [Calc 101–111]
@@ -670,6 +679,18 @@ function montarAbaAvenidas() {
            tdc(p + 'deducoes', 'pct', 'total') + tdc(p + 'ciclo', 'n4', 'total');
     }
     h += tdc(p + 'ipiSt', 'pct', 'total');
+    // Margem resultante (cenário ativo) — ao lado dos campos que a determinam, atualiza ao digitar
+    const ra = r => r[cenarioAtivo].avenidas[i];
+    h += cel(r => NF1.format(ra(r).custoCiclo * 100), 'sep') +
+         cel((r, el) => {
+           const a = ra(r);
+           el.className = 'calc mc ' + (a.mcPct < 0 ? 'mc-neg' : a.mcPct < estado.conselho.mcMinima ? 'mc-baixa' : 'mc-ok');
+           el.title = 'MC% = 100% − CMV ' + NF1.format(a.cmvEfetivo * 100) + '% − deduções ' + NF1.format(a.dedEfetiva * 100) +
+                      '% − custo do ciclo ' + NF1.format(a.custoCiclo * 100) + '% (' + NF0.format(a.ciclo) + ' dias × ' +
+                      NF1.format(estado.conselho.custoCapitalAM * 100) + '% a.m.)' + (a.mcPct < estado.conselho.mcMinima ? ' · abaixo da MC mínima do conselho' : '');
+           return fmtPct(a.mcPct);
+         }) +
+         cel(r => fmtN0(ra(r).mcAno));
     // Curva mensal
     if (valor) {
       h += MESES.map((_, m) => tdc(p + 'curva.' + m, 'curva', 'total', m === 0 ? 'sep' : '')).join('');
@@ -687,7 +708,9 @@ function montarAbaAvenidas() {
   const total = '<tr class="subtotal"><td class="txt fixa">Total (sem crescimento)</td><td></td><td></td>' +
     cel(() => fmtN0(soma(estado.avenidas.filter(a => a.camada === 'inercial').map(a => anualAvenida(a, 'cons')))), 'sep') +
     CENARIOS.map(s => cel(() => fmtN0(soma(estado.avenidas.map(a => anualAvenida(a, s)))))).join('') +
-    '<td colspan="22"></td></tr>';
+    '<td colspan="5"></td>' +
+    cel(r => fmtPct(r[cenarioAtivo].mcPct), 'mc') + cel(r => fmtN0(r[cenarioAtivo].mc)) +
+    '<td colspan="17"></td></tr>';
 
   const checagem = [
     ['Incremental Bendita Cânfora (travado na proposta)', (r, s) => fmtN0(r[s].fatBcIncr)],
@@ -708,10 +731,13 @@ function montarAbaAvenidas() {
   document.getElementById('abaAvenidas').innerHTML =
     '<h2>Avenidas — premissas únicas · incremental por cenário</h2>' +
     '<div class="subtitulo">Premissas (CMV, deduções, ciclo, IPI, curva) valem para os 3 cenários. Inercial: um valor só. Incremental: um valor por cenário. ' +
-    'Cinza = calculado (Bendita via SKUs; Le Fruit via séries; CMV/curva calculados mostram o cenário ativo). Σ% fica vermelho se a curva não somar 100%.</div>' +
+    'Cinza = calculado (Bendita via SKUs; Le Fruit via séries; CMV/curva calculados mostram o cenário ativo). Σ% fica vermelho se a curva não somar 100%.<br>' +
+    '<b>MC % = 100% − CMV − deduções − custo do ciclo</b> (ciclo ÷ 30 × custo de capital). Passe o mouse na MC % para ver a conta; ' +
+    'verde ≥ MC mínima do conselho, âmbar abaixo dela, vermelho negativa. Colunas de margem mostram o <span class="rotAtivo"></span>.</div>' +
     '<div class="tabela-scroll"><table class="grade"><tr><th class="txt fixa">Marca · descrição</th><th>Canal</th><th>Camada</th>' +
       '<th class="sep">Fat ano — Inercial</th><th>Incr. — Conservador</th><th>Incr. — Base</th><th>Incr. — Agressivo</th>' +
       '<th class="sep">CMV %</th><th>Deduções %</th><th>Ciclo (dv)</th><th>IPI+ST %</th>' +
+      '<th class="sep" title="ciclo ÷ 30 × custo de capital a.m.">Custo ciclo %</th><th title="100% − CMV − deduções − custo do ciclo (cenário ativo)">MC %</th><th>MC ano R$</th>' +
       MESES.map((m, k) => '<th' + (k === 0 ? ' class="sep"' : '') + '>' + m + ' %</th>').join('') + '<th>Σ %</th>' +
       '<th class="sep">Aj. receita %</th><th>Δ ciclo (dias)</th><th>Red. CMV %</th><th>Red. Ded. %</th></tr>' +
       linhas.join('') + total +
