@@ -1,0 +1,12 @@
+# Dados sensíveis — nunca versionar
+*.xlsx
+*.xls
+
+# Arquivos de sistema
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Números do plano — ficam só no Firestore (simuladores2027_config)
+plano/
+Spec_Simulador_2027_HTML_Claude_Code.md
