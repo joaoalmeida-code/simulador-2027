@@ -103,6 +103,20 @@
   .soma-erro { color: var(--red) !important; font-weight: 700; }
   .uso-alto { background: #F6DCCB !important; color: var(--red) !important; font-weight: 700; }
   .uso-medio { background: #FFF2CC !important; }
+  #tabAvenidas tr[data-i] { cursor: pointer; }
+  #tabAvenidas tr[data-i]:hover td { background: #F6F8F7; }
+  #tabAvenidas tr.selecionada td { box-shadow: inset 0 2px 0 var(--green), inset 0 -2px 0 var(--green); }
+  #tabAvenidas tr.selecionada td.fixa { background: var(--tint); }
+  .explorar-card { border: 1px solid var(--line); border-left: 4px solid var(--green); border-radius: 8px; padding: 1rem 1.1rem; margin: .5rem 0 1.5rem; background: #FBFCFB; }
+  .explorar { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 1.25rem; align-items: start; }
+  #sensib table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+  #sensib td { padding: .3rem .4rem; border-bottom: 1px solid #EDF1EE; vertical-align: top; }
+  #sensib td:first-child { width: 58%; }
+  #sensib td:last-child { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; font-weight: 600; }
+  #sensib td small { color: var(--muted); font-weight: 400; display: block; }
+  #sensib tr.grupo td { background: #F0F3F1; font-weight: 700; font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: #3F4F47; padding-top: .45rem; text-align: left; width: auto; }
+  @media (max-width: 900px) { .explorar { grid-template-columns: minmax(0, 1fr); } }
+  @media (max-width: 600px) { #sensib td:last-child { white-space: normal; } }
   table.grade td.mc { font-weight: 700; }
   table.grade td.mc-ok { background: var(--tint) !important; color: var(--green); }
   table.grade td.mc-baixa { background: #FFF2CC !important; color: #7A5B12; }
@@ -661,7 +675,7 @@ function montarAbaAvenidas() {
     const p = 'avenidas.' + i + '.';
     const lf = av.origem === 'lefruit', sku = av.origem === 'sku', valor = av.origem === 'valor';
     const camadaRot = { inercial: 'Inercial', incremental: 'Incremental', lefruit: 'Le Fruit' }[av.camada];
-    let h = '<tr><td class="txt fixa"><b>' + av.marca + '</b> · ' + av.desc + '</td><td class="txt">' + av.canal + '</td><td class="txt">' + camadaRot + '</td>';
+    let h = '<tr data-i="' + i + '" title="Clique para explorar a margem desta avenida"><td class="txt fixa"><b>' + av.marca + '</b> · ' + av.desc + '</td><td class="txt">' + av.canal + '</td><td class="txt">' + camadaRot + '</td>';
     // Fat ano inercial (único) + incremental por cenário
     if (av.camada === 'inercial') {
       h += valor ? tdc(p + 'anualInercial', 'n0', 'total', 'sep') : cel(() => fmtN0(anualAvenida(av, 'cons')), 'sep');
@@ -734,7 +748,7 @@ function montarAbaAvenidas() {
     'Cinza = calculado (Bendita via SKUs; Le Fruit via séries; CMV/curva calculados mostram o cenário ativo). Σ% fica vermelho se a curva não somar 100%.<br>' +
     '<b>MC % = 100% − CMV − deduções − custo do ciclo</b> (ciclo ÷ 30 × custo de capital). Passe o mouse na MC % para ver a conta; ' +
     'verde ≥ MC mínima do conselho, âmbar abaixo dela, vermelho negativa. Colunas de margem mostram o <span class="rotAtivo"></span>.</div>' +
-    '<div class="tabela-scroll"><table class="grade"><tr><th class="txt fixa">Marca · descrição</th><th>Canal</th><th>Camada</th>' +
+    '<div class="tabela-scroll"><table class="grade" id="tabAvenidas"><tr><th class="txt fixa">Marca · descrição</th><th>Canal</th><th>Camada</th>' +
       '<th class="sep">Fat ano — Inercial</th><th>Incr. — Conservador</th><th>Incr. — Base</th><th>Incr. — Agressivo</th>' +
       '<th class="sep">CMV %</th><th>Deduções %</th><th>Ciclo (dv)</th><th>IPI+ST %</th>' +
       '<th class="sep" title="ciclo ÷ 30 × custo de capital a.m.">Custo ciclo %</th><th title="100% − CMV − deduções − custo do ciclo (cenário ativo)">MC %</th><th>MC ano R$</th>' +
@@ -742,6 +756,14 @@ function montarAbaAvenidas() {
       '<th class="sep">Aj. receita %</th><th>Δ ciclo (dias)</th><th>Red. CMV %</th><th>Red. Ded. %</th></tr>' +
       linhas.join('') + total +
     '</table></div>' +
+    '<div class="explorar-card">' +
+      '<h2 style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;">Explorar a margem de <select id="selExplorar" class="in" style="width:auto;min-width:16rem;max-width:100%;background:#fff;font-size:.9rem;">' +
+        estado.avenidas.map((a, i) => '<option value="' + i + '">' + esc(a.marca + ' · ' + a.desc + ' · ' + a.canal) + '</option>').join('') +
+      '</select><span class="subtitulo" style="margin:0">— <span class="rotAtivo"></span></span></h2>' +
+      '<div class="subtitulo">De cada R$ 100 de receita líquida: quanto vai para o produto (CMV), quanto o canal e os impostos levam (deduções), quanto custa financiar o prazo (ciclo) e quanto sobra (MC). ' +
+      'À direita, o que cada alavanca vale nesta avenida — tudo recalculado do motor, sem aproximação. Clique numa linha da tabela para trocar a avenida.</div>' +
+      '<div class="explorar"><div class="area-grafico" style="height:260px;"><canvas id="gExplorar"></canvas></div><div id="sensib"></div></div>' +
+    '</div>' +
     '<h2>Checagem do conselho</h2><div class="subtitulo">Incremental autorizado: ' + fmtN0(estado.conselho.incrAutorizado) + ' · MC mínima: ' + fmtPct(estado.conselho.mcMinima) + '</div>' +
     '<div class="tabela-scroll"><table class="grade"><tr><th class="txt fixa"></th>' + CENARIOS.map(s => '<th>' + NOME_CENARIO[s] + '</th>').join('') + '</tr>' +
       checagem.map(([rot, fn]) => '<tr><td class="txt fixa">' + rot + '</td>' + CENARIOS.map(s => cel((r, el) => fn(r, s, el))).join('') + '</tr>').join('') +
@@ -819,6 +841,87 @@ function construirAbas() {
   montarAbaSkus();
   montarAbaGargalos();
   calcCel.forEach(c => { c.el = document.getElementById(c.id); });
+  criarGraficoExplorar();
+  selecionarAvenida(avenidaExplorada);
+}
+
+/* ============================================================
+   EXPLORAR A MARGEM DE UMA AVENIDA — cascata + sensibilidades
+   Só apresentação: tudo sai do resultado do motor (cenário ativo).
+   ============================================================ */
+let avenidaExplorada = 0, graficoExplorar = null;
+
+function criarGraficoExplorar() {
+  if (graficoExplorar) { graficoExplorar.destroy(); graficoExplorar = null; }
+  if (!window.Chart) return;
+  graficoExplorar = new Chart(document.getElementById('gExplorar'), {
+    type: 'bar',
+    data: { labels: ['Receita líquida', '− CMV', '− Deduções', '− Custo do ciclo', '= MC'],
+            datasets: [{ data: [], backgroundColor: [], borderRadius: 4, borderSkipped: false, barPercentage: 0.65, fatAno: 0 }] },
+    options: {
+      plugins: { legend: { display: false },
+        tooltip: { callbacks: { label: c => {
+          const [a, b] = c.raw, pts = Math.abs(b - a), fat = c.dataset.fatAno;
+          return NF1.format(pts) + '% da receita · ' + fmtN0(fat * pts / 100) + ' R$/ano';
+        } } } },
+      scales: { y: { grid: { color: '#EDF1EE' }, ticks: { callback: v => v + '%' }, suggestedMin: 0, suggestedMax: 100 },
+                x: { grid: { display: false } } }
+    }
+  });
+}
+
+function selecionarAvenida(i) {
+  avenidaExplorada = i;
+  const sel = document.getElementById('selExplorar');
+  if (sel) sel.value = i;
+  document.querySelectorAll('#tabAvenidas tr[data-i]').forEach(tr => tr.classList.toggle('selecionada', +tr.dataset.i === i));
+  if (resultado) atualizarExplorar(resultado);
+}
+
+function atualizarExplorar(r) {
+  const el = document.getElementById('sensib');
+  if (!el) return;
+  const a = r[cenarioAtivo].avenidas[avenidaExplorada], av = a.av, cons = estado.conselho;
+  const cmv = a.cmvEfetivo * 100, ded = a.dedEfetiva * 100, cic = a.custoCiclo * 100, mc = a.mcPct * 100;
+
+  if (graficoExplorar) {
+    const ds = graficoExplorar.data.datasets[0];
+    const t1 = 100 - cmv, t2 = t1 - ded;
+    ds.data = [[0, 100], [t1, 100], [t2, t1], [mc, t2], [Math.min(0, mc), Math.max(0, mc)]];
+    ds.backgroundColor = ['#143D2E', '#8A6B4F', '#C77D2E', '#D9A55B', mc < 0 ? '#B3541E' : '#2C6E49'];
+    ds.fatAno = a.fatAno;
+    graficoExplorar.options.scales.y.suggestedMin = Math.min(0, mc);
+    graficoExplorar.update();
+  }
+
+  // Sensibilidades — derivadas exatas da fórmula da MC (linear em cada termo)
+  const ptsRs = pts => fmtN0(a.fatAno * pts / 100) + ' R$/ano';
+  const linha = (rot, val, sub) => '<tr><td>' + rot + (sub ? '<small>' + sub + '</small>' : '') + '</td><td>' + val + '</td></tr>';
+  const grupo = t => '<tr class="grupo"><td colspan="2">' + t + '</td></tr>';
+  const origemCmv = av.origem === 'sku' ? 'CMV vem do mix de SKUs (Σ un × CMV R$/un ÷ Σ un × preço) — muda na aba SKUs'
+                  : av.origem === 'lefruit' ? 'CMV e deduções vêm dos parâmetros da Le Fruit (versão ' + NOME_VERSAO_LF[estado.alavancas.leFruitVersao[cenarioAtivo]] + ')' : '';
+  const dedZera = 100 - cmv - cic, dedMinima = dedZera - cons.mcMinima * 100;
+  const picoFat = Math.max(...a.fat);
+  const semReceita = a.fatAno === 0;
+
+  el.innerHTML = '<table>' +
+    grupo('Nesta avenida · ' + NOME_CENARIO[cenarioAtivo]) +
+    linha('Receita líquida no ano', fmtN0(a.fatAno) + ' R$', semReceita ? 'sem receita neste cenário — sensibilidades em R$ ficam zeradas' : '') +
+    linha('Margem de contribuição', fmtPct(a.mcPct) + ' · ' + fmtN0(a.mcAno) + ' R$',
+      'CMV ' + NF1.format(cmv) + '% + deduções ' + NF1.format(ded) + '% + ciclo ' + NF1.format(cic) + '% (' + NF0.format(a.ciclo) + ' dias)' + (origemCmv ? ' · ' + origemCmv : '')) +
+    linha('MC % nos 3 cenários', CENARIOS.map(s => NOME_CENARIO[s].slice(0, 4) + ' ' + fmtPct(r[s].avenidas[avenidaExplorada].mcPct)).join(' · '),
+      'difere só se as alavancas de cenário mexerem em CMV, deduções ou ciclo') +
+    grupo('O que cada alavanca vale aqui') +
+    linha('1 ponto percentual de deduções (ou de CMV)', '± ' + ptsRs(1), 'os dois pesam igual por ponto: ambos são % da mesma receita') +
+    linha('Reduzir as deduções em 10% (relativo)', '+' + NF1.format(ded * 0.1) + ' p.p. · ' + ptsRs(ded * 0.1), 'de ' + NF1.format(ded) + '% para ' + NF1.format(ded * 0.9) + '%') +
+    linha('Reduzir o CMV em 10% (relativo)', '+' + NF1.format(cmv * 0.1) + ' p.p. · ' + ptsRs(cmv * 0.1), 'de ' + NF1.format(cmv) + '% para ' + NF1.format(cmv * 0.9) + '%') +
+    linha('Encurtar o ciclo em 10 dias', '+' + NF1.format(10 / 30 * cons.custoCapitalAM * 100) + ' p.p. · ' + ptsRs(10 / 30 * cons.custoCapitalAM * 100),
+      'e libera até ' + fmtN0(picoFat * 10 / 30 * estado.fatorBrutoLiq) + ' R$ de NCG no mês de pico desta avenida') +
+    grupo('Limites') +
+    linha('Deduções que zeram a MC', NF1.format(dedZera) + '%', 'com o CMV e o ciclo atuais') +
+    linha('Deduções máximas para MC ≥ mínima do conselho (' + fmtPct(cons.mcMinima) + ')', NF1.format(dedMinima) + '%',
+      dedMinima < ded ? 'hoje está ' + NF1.format(ded - dedMinima) + ' p.p. acima desse limite' : 'folga de ' + NF1.format(dedMinima - ded) + ' p.p.') +
+    '</table>';
 }
 
 /* ============================================================
@@ -1017,6 +1120,7 @@ function recalcular() {
   atualizarKpis(resultado);
   atualizarQuadro(resultado);
   atualizarGraficos(resultado);
+  atualizarExplorar(resultado);
   if (usuarioId) atualizarLocal(d => { (d.rascunhos = d.rascunhos || {})[usuarioId] = estado; });
 }
 function agendarRecalculo() {
@@ -1034,6 +1138,11 @@ function definirCenario(s) {
 
 function ligarEventos() {
   const tela = document.getElementById('telaSimulador');
+  // explorar a margem: clique/foco numa linha da tabela de avenidas ou escolha no seletor
+  const porLinha = ev => { const tr = ev.target.closest('#tabAvenidas tr[data-i]'); if (tr) selecionarAvenida(+tr.dataset.i); };
+  tela.addEventListener('click', porLinha);
+  tela.addEventListener('focusin', porLinha);
+  tela.addEventListener('change', ev => { if (ev.target.id === 'selExplorar') selecionarAvenida(+ev.target.value); });
   tela.addEventListener('input', ev => {
     const el = ev.target, path = el.dataset.path;
     if (!path) return;
@@ -1062,6 +1171,7 @@ function ligarEventos() {
     if (!b) return;
     document.querySelectorAll('#abas button').forEach(x => x.classList.toggle('ativo', x === b));
     document.querySelectorAll('.aba').forEach(x => x.classList.toggle('ativo', x.id === b.dataset.aba));
+    if (b.dataset.aba === 'abaAvenidas' && graficoExplorar) graficoExplorar.resize();   // canvas nasce oculto (0×0)
   });
   document.getElementById('quadro').addEventListener('click', ev => {
     if (ev.target.id !== 'btnExpandir') return;
