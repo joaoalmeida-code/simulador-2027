@@ -10,3 +10,7 @@ desktop.ini
 # Números do plano — ficam só no Firestore (simuladores2027_config)
 plano/
 Spec_Simulador_2027_HTML_Claude_Code.md
+
+# Contexto para outras sessões (cita números do plano)
+CONTEXTO_PARA_CLAUDE_CHAT.md
+Mudanca_*.md

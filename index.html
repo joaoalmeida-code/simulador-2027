@@ -117,6 +117,13 @@
   #sensib tr.grupo td { background: #F0F3F1; font-weight: 700; font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: #3F4F47; padding-top: .45rem; text-align: left; width: auto; }
   @media (max-width: 900px) { .explorar { grid-template-columns: minmax(0, 1fr); } }
   @media (max-width: 600px) { #sensib td:last-child { white-space: normal; } }
+  .distrib-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .75rem; margin-bottom: 1rem; }
+  .dk { background: var(--tint); border-radius: 6px; padding: .6rem .8rem; min-width: 0; }
+  .dk .rot { font-size: .7rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
+  .dk .valor { font-size: 1.35rem; font-weight: 700; font-variant-numeric: tabular-nums; margin: .15rem 0; }
+  .dk .valor.pos { color: var(--green); } .dk .valor.aviso { color: #7A5B12; } .dk .valor.neg { color: var(--red); }
+  .dk .sub { font-size: .72rem; color: var(--muted); }
+  @media (max-width: 900px) { .distrib-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   table.grade td.mc { font-weight: 700; }
   table.grade td.mc-ok { background: var(--tint) !important; color: var(--green); }
   table.grade td.mc-baixa { background: #FFF2CC !important; color: #7A5B12; }
@@ -200,6 +207,8 @@
     </div>
   </div>
 
+  <div class="card" id="painelDistribuir"></div>
+
   <div class="secao-header">Gráficos — <span id="rotCenarioGraf"></span></div>
   <div class="graficos">
     <div class="card"><h2>Ponte da margem</h2><div class="subtitulo">MC por camada → custo fixo → margem operacional · cenário ativo · linha tracejada = meta de MOp</div><div class="area-grafico"><canvas id="gPonte"></canvas></div></div>
@@ -256,8 +265,14 @@
   </div>
 
   <div class="card">
+    <h2>Distribuição por autor — <span class="rotAtivo"></span></h2>
+    <div class="subtitulo">A mesa de consenso: quanto cada autor colocou nas 6 avenidas das demais marcas (R$/ano, sem crescimento), total, saldo contra o autorizado e MC média do incremental · amarelo = diferente do plano V8</div>
+    <div class="tabela-scroll"><table class="grade" id="tabDistribCmp"></table></div>
+  </div>
+
+  <div class="card">
     <h2>Incremental por avenida — <span class="rotAtivo"></span></h2>
-    <div class="subtitulo">Quem colocou quanto (R$/ano, sem crescimento) · amarelo = diferente do plano V8 · troque o cenário no topo</div>
+    <div class="subtitulo">Quem colocou quanto (R$/ano, sem crescimento) · amarelo = diferente do plano V8 · troque o cenário no topo · autores em modo distribuição só mexem nas 6 avenidas das demais marcas; o resto é herdado do plano</div>
     <div class="tabela-scroll"><table class="grade" id="tabDiffs"></table></div>
   </div>
 </main>
@@ -472,11 +487,18 @@ function renderTeste(t) {
 const USUARIOS = {
   joao:    { nome: 'João Almeida',   alcada: 'total' },
   paulo:   { nome: 'Paulo Tomazela', alcada: 'total' },
-  ricardo: { nome: 'Ricardo',        alcada: 'incremental' },
-  gabriel: { nome: 'Gabriel',        alcada: 'incremental' },
-  pedro:   { nome: 'Pedro Rabelo',   alcada: 'incremental' },
-  vitor:   { nome: 'Vitor',          alcada: 'incremental' }
+  ricardo: { nome: 'Ricardo',        alcada: 'distribuidor' },
+  gabriel: { nome: 'Gabriel',        alcada: 'distribuidor' },
+  pedro:   { nome: 'Pedro Rabelo',   alcada: 'distribuidor' },
+  vitor:   { nome: 'Vitor',          alcada: 'distribuidor' }
 };
+// Alçada "distribuidor": edita SOMENTE o incremental anual das 6 avenidas das demais marcas
+// (Laby · Alivik · Marca Bravir, exibida como "Bravir Tradicional"), aplicado igualmente aos 3 cenários.
+const MARCAS_DISTRIB = ['Laby', 'Alivik', 'Marca Bravir'];
+const ehAvenidaDistrib = av => av.camada === 'incremental' && av.origem === 'valor' && MARCAS_DISTRIB.includes(av.marca);
+const rotuloMarca = av => av.marca === 'Marca Bravir' && ehAvenidaDistrib(av) ? 'Bravir Tradicional' : av.marca;
+// índices das 6 avenidas, na ordem da mesa de consenso: Laby, Alivik, Bravir Tradicional × B2B, B2C
+const indicesDistrib = avs => MARCAS_DISTRIB.flatMap(mk => ['B2B', 'B2C'].map(c => avs.findIndex(a => ehAvenidaDistrib(a) && a.marca === mk && a.canal === c))).filter(i => i >= 0);
 const AVISO_ALCADA = 'Alçada é organização de processo, não segurança: não há autenticação — o link só define quais campos você preenche.';
 
 const PARAMS_URL = new URLSearchParams(location.search);
@@ -484,8 +506,8 @@ const VIEW = PARAMS_URL.get('view');
 const usuarioId = USUARIOS[PARAMS_URL.get('usuario')] ? PARAMS_URL.get('usuario') : null;
 const usuario = usuarioId ? USUARIOS[usuarioId] : null;
 const alcada = usuario ? usuario.alcada : 'nenhuma';
-// nivel do campo: 'total' (só alçada total) | 'incr' (alçada total e incremental)
-const podeEditar = nivel => alcada === 'total' || (alcada === 'incremental' && nivel === 'incr');
+// nivel do campo: 'total' (só alçada total) | 'distrib' (alçada total e distribuidor)
+const podeEditar = nivel => alcada === 'total' || (alcada === 'distribuidor' && nivel === 'distrib');
 
 /* ============================================================
    ESPELHO LOCAL — localStorage 'simulador2027_bravir'
@@ -675,14 +697,15 @@ function montarAbaAvenidas() {
     const p = 'avenidas.' + i + '.';
     const lf = av.origem === 'lefruit', sku = av.origem === 'sku', valor = av.origem === 'valor';
     const camadaRot = { inercial: 'Inercial', incremental: 'Incremental', lefruit: 'Le Fruit' }[av.camada];
-    let h = '<tr data-i="' + i + '" title="Clique para explorar a margem desta avenida"><td class="txt fixa"><b>' + av.marca + '</b> · ' + av.desc + '</td><td class="txt">' + av.canal + '</td><td class="txt">' + camadaRot + '</td>';
+    let h = '<tr data-i="' + i + '" title="Clique para explorar a margem desta avenida"><td class="txt fixa"><b>' + rotuloMarca(av) + '</b> · ' + av.desc + '</td><td class="txt">' + av.canal + '</td><td class="txt">' + camadaRot + '</td>';
     // Fat ano inercial (único) + incremental por cenário
     if (av.camada === 'inercial') {
       h += valor ? tdc(p + 'anualInercial', 'n0', 'total', 'sep') : cel(() => fmtN0(anualAvenida(av, 'cons')), 'sep');
       h += CENARIOS.map(s => cel(() => fmtN0(anualAvenida(av, s)))).join('');
     } else {
       h += vazio('sep');
-      h += CENARIOS.map(s => valor ? tdc(p + 'anualIncr.' + s, 'n0', 'incr') : cel(() => fmtN0(anualAvenida(av, s)))).join('');
+      // por cenário só na alçada total; o distribuidor edita pelo painel (aplica aos 3 cenários)
+      h += CENARIOS.map(s => valor ? tdc(p + 'anualIncr.' + s, 'n0', 'total') : cel(() => fmtN0(anualAvenida(av, s)))).join('');
     }
     // Premissas
     if (lf) {
@@ -758,7 +781,7 @@ function montarAbaAvenidas() {
     '</table></div>' +
     '<div class="explorar-card">' +
       '<h2 style="display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;">Explorar a margem de <select id="selExplorar" class="in" style="width:auto;min-width:16rem;max-width:100%;background:#fff;font-size:.9rem;">' +
-        estado.avenidas.map((a, i) => '<option value="' + i + '">' + esc(a.marca + ' · ' + a.desc + ' · ' + a.canal) + '</option>').join('') +
+        estado.avenidas.map((a, i) => '<option value="' + i + '">' + esc(rotuloMarca(a) + ' · ' + a.desc + ' · ' + a.canal) + '</option>').join('') +
       '</select><span class="subtitulo" style="margin:0">— <span class="rotAtivo"></span></span></h2>' +
       '<div class="subtitulo">De cada R$ 100 de receita líquida: quanto vai para o produto (CMV), quanto o canal e os impostos levam (deduções), quanto custa financiar o prazo (ciclo) e quanto sobra (MC). ' +
       'À direita, o que cada alavanca vale nesta avenida — tudo recalculado do motor, sem aproximação. Clique numa linha da tabela para trocar a avenida.</div>' +
@@ -780,7 +803,7 @@ function montarAbaSkus() {
                   : vazio('sep') + vazio();
     h += CENARIOS.map(s => ['b2b', 'b2c'].map(c => inercial
       ? cel(() => fmtN0(k.unInercial[c]), c === 'b2b' ? 'sep' : '')
-      : tdc(p + 'unIncr.' + s + '.' + c, 'n0', 'incr', c === 'b2b' ? 'sep' : '')).join('')).join('');
+      : tdc(p + 'unIncr.' + s + '.' + c, 'n0', 'total', c === 'b2b' ? 'sep' : '')).join('')).join('');
     h += MESES.map((_, m) => tdc(p + 'curva.' + m, 'curva', 'total', m === 0 ? 'sep' : '')).join('');
     h += cel((r, el) => { const t = soma(k.curva); el.classList.toggle('soma-erro', (k.sku || t > 0) && Math.abs(t - 1) > 0.0005); return NF02.format(t * 100); });
     return h + '</tr>';
@@ -836,6 +859,7 @@ function montarAbaGargalos() {
 
 function construirAbas() {
   calcCel = [];
+  montarPainelDistribuir();
   montarAbaCenarios();
   montarAbaAvenidas();
   montarAbaSkus();
@@ -843,6 +867,84 @@ function construirAbas() {
   calcCel.forEach(c => { c.el = document.getElementById(c.id); });
   criarGraficoExplorar();
   selecionarAvenida(avenidaExplorada);
+}
+
+/* ============================================================
+   PAINEL "DISTRIBUIR O INCREMENTAL" — demais marcas
+   Disponível = conselho.incrAutorizado · Distribuído/Saldo/MC média = já
+   calculados pelo motor (fatDemaisIncr, saldoDistribuir, mcMediaDemaisIncr).
+   O campo de cada avenida aplica o valor aos 3 cenários (data-tres).
+   ============================================================ */
+function campoTres(i) {
+  const pode = podeEditar('distrib');
+  return '<input class="in rs" type="text" inputmode="decimal" data-path="avenidas.' + i + '.anualIncr" data-kind="n0" data-tres="1" value="' +
+    esc(formatarCampo(estado.avenidas[i].anualIncr[cenarioAtivo], 'n0')) + '"' + (pode ? '' : ' disabled title="' + esc(AVISO_ALCADA) + '"') + '>';
+}
+
+function montarPainelDistribuir() {
+  const idx = indicesDistrib(estado.avenidas);
+  const pode = podeEditar('distrib');
+  const caixa = (id, rot, sub) => '<div class="dk"><div class="rot">' + rot + '</div><div class="valor" id="' + id + '">–</div><div class="sub" id="' + id + 'Sub">' + (sub || '') + '</div></div>';
+  document.getElementById('painelDistribuir').innerHTML =
+    '<h2>Distribuir o incremental — demais marcas</h2>' +
+    '<div class="subtitulo">O conselho autorizou um valor de incremental para as demais marcas (a Bendita Cânfora é travada à parte; a Le Fruit é aquisição, fora do autorizado). ' +
+    'Informe o faturamento <b>anual</b> incremental de cada linha: o valor vale <b>igualmente para os 3 cenários</b> e o mensal usa a curva de sazonalidade já definida no plano.' +
+    (alcada === 'total' ? ' Para diferenciar por cenário, use a aba Avenidas.' : '') +
+    (pode ? '' : ' <b>Somente leitura nesta alçada.</b>') + '</div>' +
+    '<div class="distrib-kpis">' +
+      caixa('dDisp', 'Disponível', 'autorizado pelo conselho') + caixa('dDist', 'Distribuído', 'soma das 6 avenidas') +
+      caixa('dSaldo', 'Saldo') + caixa('dMc', 'MC média do incremental') +
+    '</div>' +
+    '<div class="tabela-scroll"><table class="grade" id="tabDistrib">' +
+      '<tr><th class="txt">Marca · canal</th><th>Incremental anual (R$)</th><th>MC %</th><th>MC R$ gerada</th><th>Por cenário</th></tr>' +
+      idx.map(i => {
+        const av = estado.avenidas[i];
+        return '<tr data-i="' + i + '" title="Clique para explorar a margem desta avenida"><td class="txt"><b>' + rotuloMarca(av) + '</b> · ' + av.canal + '</td>' +
+          '<td class="' + (pode ? '' : 'travado') + '">' + campoTres(i) + '</td>' +
+          cel((r, el) => { const a = r[cenarioAtivo].avenidas[i]; el.className = 'calc mc ' + (a.mcPct < 0 ? 'mc-neg' : a.mcPct < estado.conselho.mcMinima ? 'mc-baixa' : 'mc-ok'); return fmtPct(a.mcPct); }) +
+          cel(r => fmtN0(r[cenarioAtivo].avenidas[i].mcAno)) +
+          cel(() => { const v = av.anualIncr; return v.cons === v.base && v.base === v.agr ? 'iguais' : CENARIOS.map(s => NOME_CENARIO[s].slice(0, 4) + ' ' + fmtN0(v[s])).join(' · '); }) +
+          '</tr>';
+      }).join('') +
+      '<tr class="subtotal"><td class="txt">Total distribuído</td>' + cel(r => fmtN0(r[cenarioAtivo].fatDemaisIncr)) +
+        cel(r => fmtPct(r[cenarioAtivo].mcMediaDemaisIncr), 'mc') + cel(r => fmtN0(r[cenarioAtivo].mcCamadas.demaisIncr)) + '<td class="calc"></td></tr>' +
+    '</table></div>' +
+    '<div class="subtitulo" id="dInfo" style="margin:.6rem 0 0"></div>';
+}
+
+function atualizarDistribuir(r) {
+  if (!document.getElementById('dDisp')) return;
+  const x = r[cenarioAtivo], cons = estado.conselho;
+  const difere = k => !(r.cons[k] === r.base[k] && r.base[k] === r.agr[k]);
+  const porCen = k => difere(k) ? CENARIOS.map(s => NOME_CENARIO[s].slice(0, 4) + ' ' + fmtN0(r[s][k])).join(' · ') : '';
+  document.getElementById('dDisp').textContent = fmtN0(cons.incrAutorizado);
+  document.getElementById('dDist').textContent = fmtN0(x.fatDemaisIncr);
+  document.getElementById('dDistSub').textContent = porCen('fatDemaisIncr') || 'soma das 6 avenidas · igual nos 3 cenários';
+  const saldo = Math.round(x.saldoDistribuir);
+  const elSaldo = document.getElementById('dSaldo');
+  elSaldo.textContent = fmtN0(saldo);
+  elSaldo.className = 'valor ' + (saldo < 0 ? 'neg' : saldo > 0 ? 'aviso' : 'pos');
+  document.getElementById('dSaldoSub').textContent = (saldo === 0 ? 'FECHADO' : saldo > 0 ? 'FALTA DISTRIBUIR' : 'ACIMA DO AUTORIZADO') + (porCen('saldoDistribuir') ? ' · ' + porCen('saldoDistribuir') : '');
+  const okMc = x.mcMediaDemaisIncr >= cons.mcMinima;
+  const elMc = document.getElementById('dMc');
+  elMc.textContent = fmtPct(x.mcMediaDemaisIncr);
+  elMc.className = 'valor ' + (okMc ? 'pos' : 'aviso');
+  document.getElementById('dMcSub').textContent = (okMc ? 'OK · ' : 'ABAIXO DO MÍNIMO · ') + 'mínima do conselho ' + fmtPct(cons.mcMinima);
+  document.getElementById('dInfo').innerHTML =
+    'Fora desta distribuição, herdados do plano: <b>Bendita Cânfora incremental</b> (travada pelo conselho) ' + fmtN0(x.fatBcIncr) + ' R$ · ' +
+    '<b>Le Fruit</b> ' + (estado.alavancas.leFruitEntra[cenarioAtivo] ? 'entra (' + NOME_VERSAO_LF[estado.alavancas.leFruitVersao[cenarioAtivo]] + ', ' + fmtN0(x.fatCamadas.lefruit) + ' R$)' : 'não entra') +
+    ' · números do cenário <b>' + NOME_CENARIO[cenarioAtivo] + '</b>.';
+}
+
+// Valor que um campo exibe: campos data-tres mostram o cenário ativo
+const valorDoCampo = el => el.dataset.tres ? pegar(estado, el.dataset.path)[cenarioAtivo] : pegar(estado, el.dataset.path);
+// Reflete o estado em todos os campos (menos o que está sendo digitado) — mantém painel e aba Avenidas em sincronia
+function sincronizarCampos() {
+  document.querySelectorAll('#telaSimulador input[data-path]').forEach(inp => {
+    if (inp === document.activeElement || inp.classList.contains('invalido')) return;
+    const v = formatarCampo(valorDoCampo(inp), inp.dataset.kind);
+    if (inp.value !== v) inp.value = v;
+  });
 }
 
 /* ============================================================
@@ -1121,6 +1223,8 @@ function recalcular() {
   atualizarQuadro(resultado);
   atualizarGraficos(resultado);
   atualizarExplorar(resultado);
+  atualizarDistribuir(resultado);
+  sincronizarCampos();
   if (usuarioId) atualizarLocal(d => { (d.rascunhos = d.rascunhos || {})[usuarioId] = estado; });
 }
 function agendarRecalculo() {
@@ -1139,7 +1243,7 @@ function definirCenario(s) {
 function ligarEventos() {
   const tela = document.getElementById('telaSimulador');
   // explorar a margem: clique/foco numa linha da tabela de avenidas ou escolha no seletor
-  const porLinha = ev => { const tr = ev.target.closest('#tabAvenidas tr[data-i]'); if (tr) selecionarAvenida(+tr.dataset.i); };
+  const porLinha = ev => { const tr = ev.target.closest('#tabAvenidas tr[data-i], #tabDistrib tr[data-i]'); if (tr) selecionarAvenida(+tr.dataset.i); };
   tela.addEventListener('click', porLinha);
   tela.addEventListener('focusin', porLinha);
   tela.addEventListener('change', ev => { if (ev.target.id === 'selExplorar') selecionarAvenida(+ev.target.value); });
@@ -1156,7 +1260,8 @@ function ligarEventos() {
       el.classList.remove('invalido');
       v = (kind === 'pct' || kind === 'curva') ? n / 100 : n;
     }
-    definir(estado, path, v);
+    if (el.dataset.tres) CENARIOS.forEach(s => definir(estado, path + '.' + s, v));   // distribuição: vale para os 3 cenários
+    else definir(estado, path, v);
     if (kind === 'tipo') construirAbas();   // tipo do SKU muda quais colunas são editáveis
     agendarRecalculo();
   });
@@ -1164,7 +1269,7 @@ function ligarEventos() {
   tela.addEventListener('change', ev => {
     const el = ev.target;
     if (el.tagName === 'INPUT' && el.dataset.path && !el.classList.contains('invalido'))
-      el.value = formatarCampo(pegar(estado, el.dataset.path), el.dataset.kind);
+      el.value = formatarCampo(valorDoCampo(el), el.dataset.kind);
   });
   document.getElementById('abas').addEventListener('click', ev => {
     const b = ev.target.closest('button');
@@ -1265,6 +1370,7 @@ function salvarVersao() {
     usuario: usuarioId,
     nomeExibicao: usuario.nome,
     nomeVersao: document.getElementById('nomeVersao').value.trim() || 'Versão de ' + new Date().toLocaleString('pt-BR'),
+    modo: alcada === 'distribuidor' ? 'distribuicao' : 'completo',
     timestamp: timestampBrasilia(),
     idLocal: usuarioId + '-' + Date.now(),
     resumo: resumoDe(calcular(estado)),
@@ -1377,7 +1483,8 @@ function renderComparativo() {
     '<tr><th class="txt fixa" rowspan="2">Autor</th><th rowspan="2" class="txt">Versão</th><th rowspan="2">Salva em</th>' +
       CENARIOS.map(s => '<th colspan="4" class="sep" style="color:#fff;background:' + COR[s] + '">' + NOME_CENARIO[s] + '</th>').join('') + '</tr>' +
     '<tr>' + CENARIOS.map(() => ind.map(([, rot], i) => '<th class="' + (i === 0 ? 'sep' : '') + '">' + rot + '</th>').join('')).join('') + '</tr>' +
-    linhas.map(({ u, doc, versoes }) => '<tr class="' + (u === 'v8' ? 'referencia' : '') + '"><td class="txt fixa"><b>' + esc(doc.nomeExibicao) + '</b></td><td class="txt">' +
+    linhas.map(({ u, doc, versoes }) => '<tr class="' + (u === 'v8' ? 'referencia' : '') + '"><td class="txt fixa"><b>' + esc(doc.nomeExibicao) + '</b>' +
+      (doc.modo === 'distribuicao' ? ' <small style="color:var(--muted)" title="Só distribuiu o incremental das demais marcas; o resto é herdado do plano">distribuição</small>' : '') + '</td><td class="txt">' +
       (versoes && versoes.length > 1
         ? '<select class="in" data-u="' + u + '">' + versoes.map((v, i) => '<option value="' + i + '"' + (v === doc ? ' selected' : '') + '>' + esc(v.nomeVersao) + (i === 0 ? ' (mais recente)' : '') + '</option>').join('') + '</select>'
         : esc(doc.nomeVersao) + (doc.pendente ? ' <span class="alerta">(pendente)</span>' : '')) +
@@ -1409,18 +1516,35 @@ function renderComparativo() {
     const av = l.doc.payload.avenidas[i];
     return av ? anualAvenidaDe(estadoDoPayload(l.doc.payload), av, s) : null;
   };
-  const celula = (v, vRef) => {
-    if (v == null) return '<td>–</td>';
+  const celula = (v, vRef, extra = '') => {
+    if (v == null) return '<td class="' + extra + '">–</td>';
     const dif = Math.abs(v - vRef) > 0.5;
-    return '<td class="' + (dif ? 'difere' : '') + '"' + (dif ? ' title="' + (v >= vRef ? '+' : '−') + fmtN0(Math.abs(v - vRef)) + ' vs plano V8"' : '') + '>' + fmtN0(v) + '</td>';
+    return '<td class="' + extra + (dif ? ' difere' : '') + '"' + (dif ? ' title="' + (v >= vRef ? '+' : '−') + fmtN0(Math.abs(v - vRef)) + ' vs plano V8"' : '') + '>' + fmtN0(v) + '</td>';
   };
+  // 3a. mesa de consenso — distribuição por autor nas 6 avenidas das demais marcas
+  const idxD = indicesDistrib(DEFAULTS.avenidas);
+  const linhasD = linhas.map(l => {
+    const est = estadoDoPayload(l.doc.payload), rr = calcular(est);
+    return { l, vals: idxD.map(i => est.avenidas[i] ? anualAvenidaDe(est, est.avenidas[i], s) : null), total: rr[s].fatDemaisIncr, saldo: rr[s].saldoDistribuir, mcMedia: rr[s].mcMediaDemaisIncr };
+  });
+  const refD = linhasD[0];
+  document.getElementById('tabDistribCmp').innerHTML =
+    '<tr><th class="txt fixa">Autor</th>' + idxD.map(i => { const av = DEFAULTS.avenidas[i]; return '<th>' + esc(rotuloMarca(av)) + '<br>' + av.canal + '</th>'; }).join('') +
+      '<th class="sep">Total</th><th>Saldo vs autorizado</th><th>MC média</th></tr>' +
+    linhasD.map(({ l, vals, total, saldo, mcMedia }) =>
+      '<tr class="' + (l.u === 'v8' ? 'referencia' : '') + '"><td class="txt fixa"><b>' + esc(l.doc.nomeExibicao) + '</b>' + (l.doc.modo === 'distribuicao' ? ' <small style="color:var(--muted)">distribuição</small>' : '') + '</td>' +
+      vals.map((v, k) => celula(v, refD.vals[k])).join('') +
+      celula(total, refD.total, 'sep') +
+      '<td class="' + (saldo < -0.5 ? 'soma-erro' : '') + '">' + fmtN0(saldo) + '</td>' +
+      '<td class="' + (mcMedia < estado.conselho.mcMinima ? 'soma-erro' : '') + '">' + fmtPct(mcMedia) + '</td></tr>').join('');
+
   const idxIncr = DEFAULTS.avenidas.map((av, i) => av.camada !== 'inercial' ? i : -1).filter(i => i >= 0);
   const marcas = [...new Set(idxIncr.map(i => DEFAULTS.avenidas[i].marca))];
   let corpo = '';
   marcas.forEach(mk => {
     const idx = idxIncr.filter(i => DEFAULTS.avenidas[i].marca === mk);
     const tot = l => soma(idx.map(i => valor(l, i) || 0));
-    corpo += '<tr class="subtotal"><td class="txt fixa">' + mk + '</td>' + linhas.map(l => celula(tot(l), tot(ref))).join('') + '</tr>';
+    corpo += '<tr class="subtotal"><td class="txt fixa">' + rotuloMarca(DEFAULTS.avenidas[idx[0]]) + '</td>' + linhas.map(l => celula(tot(l), tot(ref))).join('') + '</tr>';
     corpo += idx.map(i => { const av = DEFAULTS.avenidas[i];
       return '<tr><td class="txt fixa">&nbsp;&nbsp;' + av.desc + ' · ' + av.canal + '</td>' + linhas.map(l => celula(valor(l, i), valor(ref, i))).join('') + '</tr>'; }).join('');
   });
@@ -1496,7 +1620,7 @@ function exportarExcel() {
 
   docs.forEach(doc => {
     const est = estadoDoPayload(doc.payload), r = calcular(est);
-    const id = { 'Usuário': doc.usuario, 'Nome': doc.nomeExibicao, 'Versão': doc.nomeVersao, 'Salva em': doc.timestamp,
+    const id = { 'Usuário': doc.usuario, 'Nome': doc.nomeExibicao, 'Versão': doc.nomeVersao, 'Modo': doc.modo || 'completo', 'Salva em': doc.timestamp,
                  'Mais recente': doc === REF_V8 ? 'Referência' : maisRecente.has(doc) ? 'Sim' : 'Não' };
     CENARIOS.forEach(s => {
       const x = r[s];
