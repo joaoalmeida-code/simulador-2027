@@ -203,7 +203,7 @@
     <span id="firebase-status"></span>
     <div style="margin-left:auto;display:flex;gap:.5rem;flex-wrap:wrap;">
       <select id="selMinhasVersoes" class="btn" style="font-weight:400;"><option value="">Abrir versão salva…</option></select>
-      <button class="btn" id="btnRestaurar" title="Descarta o rascunho e volta aos valores da V8">↺ Voltar ao plano V8</button>
+      <button class="btn" id="btnRestaurar" title="Descarta o rascunho e volta aos valores do plano de referência">↺ Voltar ao plano <span class="rotPlano"></span></button>
     </div>
   </div>
 
@@ -235,7 +235,7 @@
   </div>
 
   <details>
-    <summary>Teste de validação do motor (defaults × V8)</summary>
+    <summary>Teste de validação do motor (defaults × planilha <span class="rotPlano"></span>)</summary>
     <pre id="teste"></pre>
   </details>
 </main>
@@ -249,7 +249,7 @@
 
   <div class="card">
     <h2>Versões × indicadores</h2>
-    <div class="subtitulo">Plano V8 = referência (defaults da planilha). Valores pré-calculados no momento do salvamento.</div>
+    <div class="subtitulo">Plano <span class="rotPlano"></span> = referência (defaults da planilha). Valores pré-calculados no momento do salvamento.</div>
     <div class="tabela-scroll"><table class="grade" id="tabComparar"></table></div>
   </div>
 
@@ -266,21 +266,23 @@
 
   <div class="card">
     <h2>Distribuição por autor — <span class="rotAtivo"></span></h2>
-    <div class="subtitulo">A mesa de consenso: quanto cada autor colocou nas 6 avenidas das demais marcas (R$/ano, sem crescimento), total, saldo contra o autorizado e MC média do incremental · amarelo = diferente do plano V8</div>
+    <div class="subtitulo">A mesa de consenso: quanto cada autor colocou nas 6 avenidas das demais marcas (R$/ano, sem crescimento), total, saldo contra o autorizado e MC média do incremental · amarelo = diferente do plano de referência</div>
     <div class="tabela-scroll"><table class="grade" id="tabDistribCmp"></table></div>
   </div>
 
   <div class="card">
     <h2>Incremental por avenida — <span class="rotAtivo"></span></h2>
-    <div class="subtitulo">Quem colocou quanto (R$/ano, sem crescimento) · amarelo = diferente do plano V8 · troque o cenário no topo · autores em modo distribuição só mexem nas 6 avenidas das demais marcas; o resto é herdado do plano</div>
+    <div class="subtitulo">Quem colocou quanto (R$/ano, sem crescimento) · amarelo = diferente do plano de referência · troque o cenário no topo · autores em modo distribuição só mexem nas 6 avenidas das demais marcas; o resto é herdado do plano</div>
     <div class="tabela-scroll"><table class="grade" id="tabDiffs"></table></div>
   </div>
 </main>
 
 <script>
 /* ============================================================
-   MOTOR DE CÁLCULO — porte 1:1 da aba Calc da V8.
-   A V8 é a referência auditável; mudou a lógica aqui → muda lá.
+   MOTOR DE CÁLCULO — porte 1:1 da aba Calc da planilha de referência (V8 → V9).
+   A planilha é a referência auditável; mudou a lógica aqui → muda lá.
+   V9: deduções abertas em 3 grupos (impostos, variáveis, comunicação) — a Calc
+   continua usando a soma (AV!F), por isso o motor lê só `deducoes` = Σ grupos.
    Referências entre colchetes = linhas do bloco Conservador da Calc
    (Base = +55 linhas, Agressivo = +110).
    ============================================================ */
@@ -445,7 +447,7 @@ function calcular(estado) {
    TESTE DE VALIDAÇÃO — defaults têm de reproduzir a V8 (spec 5.1)
    Valores de referência = cache da V8 (Entrada · Cenários B6:D15, Painel, Calc).
    ============================================================ */
-let REFERENCIA_V8 = null;   // valores da V8 que os defaults têm de reproduzir — vêm do Firestore junto com o plano
+let REFERENCIA = null;   // valores da V8 que os defaults têm de reproduzir — vêm do Firestore junto com o plano
 const TOLERANCIA = 0.005;
 
 function testarMotor() {
@@ -453,7 +455,7 @@ function testarMotor() {
   const linhas = [];
   let ok = true;
   CENARIOS.forEach(s => {
-    Object.entries(REFERENCIA_V8[s]).forEach(([chave, esperado]) => {
+    Object.entries(REFERENCIA[s]).forEach(([chave, esperado]) => {
       const obtido = chave.split('.').reduce((o, k) => o[k], r[s]);
       const desvio = esperado === 0 ? Math.abs(obtido) : Math.abs(obtido / esperado - 1);
       const passou = desvio <= TOLERANCIA;
@@ -467,10 +469,10 @@ function testarMotor() {
 function renderTeste(t) {
   const banner = document.getElementById('banner');
   if (t.ok) {
-    banner.innerHTML = '<div class="banner-ok" id="statusMotor" data-ok="1">✓ Motor validado contra a V8 (' + t.linhas.length + ' indicadores dentro de 0,5%)</div>';
+    banner.innerHTML = '<div class="banner-ok" id="statusMotor" data-ok="1">✓ Motor validado contra a planilha ' + PLANO_VERSAO + ' (' + t.linhas.length + ' indicadores dentro de 0,5%)</div>';
   } else {
     const n = t.linhas.filter(l => !l.passou).length;
-    banner.innerHTML = '<div class="banner-erro" id="statusMotor" data-ok="0">⚠ Motor divergente da V8 — ' + n + ' indicador(es) fora da tolerância de 0,5%. Não use os números até corrigir.</div>';
+    banner.innerHTML = '<div class="banner-erro" id="statusMotor" data-ok="0">⚠ Motor divergente da planilha ' + PLANO_VERSAO + ' — ' + n + ' indicador(es) fora da tolerância de 0,5%. Não use os números até corrigir.</div>';
   }
   document.getElementById('teste').textContent = t.linhas.map(l =>
     (l.passou ? 'OK  ' : 'ERRO') + ' ' + l.s.padEnd(5) + l.chave.padEnd(22) +
@@ -539,10 +541,17 @@ function normalizar(e) {
 function carregarEstadoInicial() {
   const local = lerLocal();
   const rasc = usuarioId && local.rascunhos && local.rascunhos[usuarioId];
+  const versaoRasc = usuarioId && local.rascunhoVersao && local.rascunhoVersao[usuarioId];
+  // rascunho feito sobre outro plano de referência (ex.: V8) não vale sobre o atual — descarta e avisa
+  if (rasc && versaoRasc !== PLANO_VERSAO) {
+    document.getElementById('aviso').innerHTML =
+      '<div class="banner-aviso">O plano de referência mudou para a ' + PLANO_VERSAO + '. O rascunho anterior (feito sobre a ' + (versaoRasc || 'versão antiga') + ') foi descartado; você começa do plano novo.</div>';
+    return normalizar(clonar(DEFAULTS));
+  }
   if (rasc && rasc.avenidas && rasc.avenidas.length === DEFAULTS.avenidas.length) {
     if (JSON.stringify(rasc) !== JSON.stringify(normalizar(clonar(DEFAULTS))))
       document.getElementById('aviso').innerHTML =
-        '<div class="banner-aviso">Rascunho local restaurado (o que você digitou por último neste aparelho). Use “Voltar ao plano V8” para descartar.</div>';
+        '<div class="banner-aviso">Rascunho local restaurado (o que você digitou por último neste aparelho). Use “Voltar ao plano” para descartar.</div>';
     return normalizar(rasc);
   }
   return normalizar(clonar(DEFAULTS));
@@ -636,6 +645,26 @@ function anualAvenidaDe(est, av, s) {
 }
 const anualAvenida = (av, s) => anualAvenidaDe(estado, av, s);
 
+// Grupos de dedução [impostos, variáveis, comunicação] em % da receita, sem alavancas; null se o plano/versão não tem a abertura.
+// Le Fruit (V9, Entrada · Avenidas G26:I27): impostos fixos; variáveis = (ded − impostos) × fração do canal; comunicação = resto.
+function gruposDeducaoBrutos(av, s = cenarioAtivo, est = estado) {
+  if (av.origem === 'lefruit') {
+    const g = est.leFruit.gruposDed;
+    if (!g) return null;
+    const ded = paramLeFruit(est, s, av.canal).ded, vr = (ded - g.impostos) * g.fracaoVariaveis[av.canal.toLowerCase()];
+    return [g.impostos, vr, ded - g.impostos - vr];
+  }
+  const g = av.dedGrupos;
+  return g ? [g.impostos, g.variaveis, g.comunicacao] : null;
+}
+// Os mesmos grupos já com ajustes finos e alavancas do cenário — somam exatamente a dedEfetiva do motor
+function gruposDeducaoEfetivos(a, s = cenarioAtivo) {
+  const g = gruposDeducaoBrutos(a.av, s);
+  if (!g) return null;
+  const bruto = g[0] + g[1] + g[2], f = bruto ? a.dedEfetiva / bruto : 0;
+  return g.map(x => x * f);
+}
+
 function montarAbaCenarios() {
   const conselho = [
     ['Incremental autorizado — demais avenidas (Bendita travada à parte)', 'conselho.incrAutorizado', 'n0'],
@@ -707,13 +736,21 @@ function montarAbaAvenidas() {
       // por cenário só na alçada total; o distribuidor edita pelo painel (aplica aos 3 cenários)
       h += CENARIOS.map(s => valor ? tdc(p + 'anualIncr.' + s, 'n0', 'total') : cel(() => fmtN0(anualAvenida(av, s)))).join('');
     }
-    // Premissas
+    // Premissas — deduções abertas em 3 grupos (V9): a Σ é o que o motor usa; editar um grupo recalcula a Σ
+    const ND = '<td class="calc" title="versão salva antes da V9: deduções sem abertura em grupos">n/d</td>';
     if (lf) {
       const pr = k => cel(() => { const v = paramLeFruit(estado, cenarioAtivo, av.canal)[k]; return k === 'ciclo' ? NF04.format(v) : NF04.format(v * 100); });
-      h += pr('cmv').replace('class="calc ', 'class="calc sep ') + pr('ded') + pr('ciclo');
+      const gl = k => cel(() => { const g = gruposDeducaoBrutos(av); return g ? NF04.format(g[k] * 100) : 'n/d'; });
+      h += pr('cmv').replace('class="calc ', 'class="calc sep ') + pr('ded') + gl(0) + gl(1) + gl(2) + pr('ciclo');
     } else {
-      h += (valor ? tdc(p + 'cmv', 'pct', 'total', 'sep') : cel(r => NF04.format(r[cenarioAtivo].avenidas[i].cmvUsado * 100), 'sep')) +
-           tdc(p + 'deducoes', 'pct', 'total') + tdc(p + 'ciclo', 'n4', 'total');
+      h += (valor ? tdc(p + 'cmv', 'pct', 'total', 'sep') : cel(r => NF04.format(r[cenarioAtivo].avenidas[i].cmvUsado * 100), 'sep'));
+      if (av.dedGrupos) {
+        h += cel(() => NF04.format(av.deducoes * 100)) +
+             tdc(p + 'dedGrupos.impostos', 'pct', 'total') + tdc(p + 'dedGrupos.variaveis', 'pct', 'total') + tdc(p + 'dedGrupos.comunicacao', 'pct', 'total');
+      } else {
+        h += tdc(p + 'deducoes', 'pct', 'total') + ND + ND + ND;
+      }
+      h += tdc(p + 'ciclo', 'n4', 'total');
     }
     h += tdc(p + 'ipiSt', 'pct', 'total');
     // Margem resultante (cenário ativo) — ao lado dos campos que a determinam, atualiza ao digitar
@@ -745,7 +782,7 @@ function montarAbaAvenidas() {
   const total = '<tr class="subtotal"><td class="txt fixa">Total (sem crescimento)</td><td></td><td></td>' +
     cel(() => fmtN0(soma(estado.avenidas.filter(a => a.camada === 'inercial').map(a => anualAvenida(a, 'cons')))), 'sep') +
     CENARIOS.map(s => cel(() => fmtN0(soma(estado.avenidas.map(a => anualAvenida(a, s)))))).join('') +
-    '<td colspan="5"></td>' +
+    '<td colspan="8"></td>' +
     cel(r => fmtPct(r[cenarioAtivo].mcPct), 'mc') + cel(r => fmtN0(r[cenarioAtivo].mc)) +
     '<td colspan="17"></td></tr>';
 
@@ -769,11 +806,11 @@ function montarAbaAvenidas() {
     '<h2>Avenidas — premissas únicas · incremental por cenário</h2>' +
     '<div class="subtitulo">Premissas (CMV, deduções, ciclo, IPI, curva) valem para os 3 cenários. Inercial: um valor só. Incremental: um valor por cenário. ' +
     'Cinza = calculado (Bendita via SKUs; Le Fruit via séries; CMV/curva calculados mostram o cenário ativo). Σ% fica vermelho se a curva não somar 100%.<br>' +
-    '<b>MC % = 100% − CMV − deduções − custo do ciclo</b> (ciclo ÷ 30 × custo de capital). Passe o mouse na MC % para ver a conta; ' +
+    '<b>MC % = 100% − CMV − deduções − custo do ciclo</b> (ciclo ÷ 30 × custo de capital). Deduções = impostos (PIS+COFINS+ICMS) + variáveis (comissão+frete) + comunicação (mkt+tráfego+trade); editar um grupo recalcula a Σ. Passe o mouse na MC % para ver a conta; ' +
     'verde ≥ MC mínima do conselho, âmbar abaixo dela, vermelho negativa. Colunas de margem mostram o <span class="rotAtivo"></span>.</div>' +
     '<div class="tabela-scroll"><table class="grade" id="tabAvenidas"><tr><th class="txt fixa">Marca · descrição</th><th>Canal</th><th>Camada</th>' +
       '<th class="sep">Fat ano — Inercial</th><th>Incr. — Conservador</th><th>Incr. — Base</th><th>Incr. — Agressivo</th>' +
-      '<th class="sep">CMV %</th><th>Deduções %</th><th>Ciclo (dv)</th><th>IPI+ST %</th>' +
+      '<th class="sep">CMV %</th><th title="Σ dos 3 grupos — é o que entra na MC">Deduções Σ %</th><th title="PIS + COFINS + ICMS">Impostos %</th><th title="Comissão + frete">Variáveis %</th><th title="Marketing + tráfego + trade">Comunicação %</th><th>Ciclo (dv)</th><th>IPI+ST %</th>' +
       '<th class="sep" title="ciclo ÷ 30 × custo de capital a.m.">Custo ciclo %</th><th title="100% − CMV − deduções − custo do ciclo (cenário ativo)">MC %</th><th>MC ano R$</th>' +
       MESES.map((m, k) => '<th' + (k === 0 ? ' class="sep"' : '') + '>' + m + ' %</th>').join('') + '<th>Σ %</th>' +
       '<th class="sep">Aj. receita %</th><th>Δ ciclo (dias)</th><th>Red. CMV %</th><th>Red. Ded. %</th></tr>' +
@@ -831,7 +868,7 @@ function montarAbaGargalos() {
   const clsUso = (el, u) => { el.classList.toggle('uso-alto', u > 1); el.classList.toggle('uso-medio', u > 0.85 && u <= 1); };
 
   document.getElementById('abaGargalos').innerHTML =
-    '<h2>Parâmetros</h2><div class="subtitulo">Placeholders da V8 — ajustar quando houver dado real</div>' +
+    '<h2>Parâmetros</h2><div class="subtitulo">Placeholders da planilha — ajustar quando houver dado real</div>' +
     '<div class="form-linhas" style="margin-bottom:1.25rem;">' +
       [['Ticket médio B2C (R$)', 'gargalos.ticketB2C', 'n4'], ['Toneladas por contêiner (referência)', 'gargalos.tonPorConteiner', 'n4'],
        ['R$ por tonelada p/ linhas BC em R$', 'gargalos.rsPorTonBCRs', 'n0']]
@@ -986,11 +1023,19 @@ function atualizarExplorar(r) {
   const a = r[cenarioAtivo].avenidas[avenidaExplorada], av = a.av, cons = estado.conselho;
   const cmv = a.cmvEfetivo * 100, ded = a.dedEfetiva * 100, cic = a.custoCiclo * 100, mc = a.mcPct * 100;
 
+  const grupos = gruposDeducaoEfetivos(a);
   if (graficoExplorar) {
     const ds = graficoExplorar.data.datasets[0];
-    const t1 = 100 - cmv, t2 = t1 - ded;
-    ds.data = [[0, 100], [t1, 100], [t2, t1], [mc, t2], [Math.min(0, mc), Math.max(0, mc)]];
-    ds.backgroundColor = ['#143D2E', '#8A6B4F', '#C77D2E', '#D9A55B', mc < 0 ? '#B3541E' : '#2C6E49'];
+    // cascata: receita → −CMV → −deduções (abertas em 3 grupos quando o plano tem) → −ciclo → MC
+    const passos = []; let topo = 100;
+    const desce = (rot, pts, cor) => { passos.push({ rot, faixa: [topo - pts, topo], cor }); topo -= pts; };
+    desce('− CMV', cmv, '#8A6B4F');
+    if (grupos) { desce('− Impostos', grupos[0] * 100, '#9C4A1A'); desce('− Variáveis', grupos[1] * 100, '#C77D2E'); desce('− Comunicação', grupos[2] * 100, '#E0A458'); }
+    else desce('− Deduções', ded, '#C77D2E');
+    desce('− Custo do ciclo', cic, '#EBCF9A');
+    graficoExplorar.data.labels = ['Receita líquida'].concat(passos.map(p => p.rot), '= MC');
+    ds.data = [[0, 100]].concat(passos.map(p => p.faixa), [[Math.min(0, mc), Math.max(0, mc)]]);
+    ds.backgroundColor = ['#143D2E'].concat(passos.map(p => p.cor), mc < 0 ? '#B3541E' : '#2C6E49');
     ds.fatAno = a.fatAno;
     graficoExplorar.options.scales.y.suggestedMin = Math.min(0, mc);
     graficoExplorar.update();
@@ -1011,6 +1056,8 @@ function atualizarExplorar(r) {
     linha('Receita líquida no ano', fmtN0(a.fatAno) + ' R$', semReceita ? 'sem receita neste cenário — sensibilidades em R$ ficam zeradas' : '') +
     linha('Margem de contribuição', fmtPct(a.mcPct) + ' · ' + fmtN0(a.mcAno) + ' R$',
       'CMV ' + NF1.format(cmv) + '% + deduções ' + NF1.format(ded) + '% + ciclo ' + NF1.format(cic) + '% (' + NF0.format(a.ciclo) + ' dias)' + (origemCmv ? ' · ' + origemCmv : '')) +
+    (grupos ? linha('Deduções por grupo', 'impostos ' + NF1.format(grupos[0] * 100) + '% · variáveis ' + NF1.format(grupos[1] * 100) + '% · comunicação ' + NF1.format(grupos[2] * 100) + '%',
+      'PIS+COFINS+ICMS · comissão+frete · mkt+tráfego+trade — Σ ' + NF1.format(ded) + '%') : '') +
     linha('MC % nos 3 cenários', CENARIOS.map(s => NOME_CENARIO[s].slice(0, 4) + ' ' + fmtPct(r[s].avenidas[avenidaExplorada].mcPct)).join(' · '),
       'difere só se as alavancas de cenário mexerem em CMV, deduções ou ciclo') +
     grupo('O que cada alavanca vale aqui') +
@@ -1225,7 +1272,7 @@ function recalcular() {
   atualizarExplorar(resultado);
   atualizarDistribuir(resultado);
   sincronizarCampos();
-  if (usuarioId) atualizarLocal(d => { (d.rascunhos = d.rascunhos || {})[usuarioId] = estado; });
+  if (usuarioId) atualizarLocal(d => { (d.rascunhos = d.rascunhos || {})[usuarioId] = estado; (d.rascunhoVersao = d.rascunhoVersao || {})[usuarioId] = PLANO_VERSAO; });
 }
 function agendarRecalculo() {
   if (recalcAgendado) return;
@@ -1262,6 +1309,10 @@ function ligarEventos() {
     }
     if (el.dataset.tres) CENARIOS.forEach(s => definir(estado, path + '.' + s, v));   // distribuição: vale para os 3 cenários
     else definir(estado, path, v);
+    if (path.includes('.dedGrupos.')) {   // V9: a Σ dos grupos é o que o motor usa
+      const av = pegar(estado, path.replace(/\.dedGrupos\..*$/, ''));
+      av.deducoes = av.dedGrupos.impostos + av.dedGrupos.variaveis + av.dedGrupos.comunicacao;
+    }
     if (kind === 'tipo') construirAbas();   // tipo do SKU muda quais colunas são editáveis
     agendarRecalculo();
   });
@@ -1284,7 +1335,7 @@ function ligarEventos() {
     atualizarQuadro(resultado);
   });
   document.getElementById('btnRestaurar').addEventListener('click', () => {
-    if (!confirm('Descartar o rascunho e voltar aos valores do plano V8?')) return;
+    if (!confirm('Descartar o rascunho e voltar aos valores do plano ' + PLANO_VERSAO + '?')) return;
     estado = normalizar(clonar(DEFAULTS));
     document.getElementById('aviso').innerHTML = '';
     construirAbas();
@@ -1455,10 +1506,10 @@ let versoesCmp = [];
 const escolhaCmp = {};   // usuario → índice da versão escolhida (0 = mais recente)
 let graficoAutores = null, indicadorCmp = 'fat';
 
-let REF_V8 = null;   // montado depois que o plano chega do Firestore
-function montarRefV8() {
+let REF_PLANO = null;   // montado depois que o plano chega do Firestore
+function montarRefPlano() {
   const p = payloadDe(normalizar(clonar(DEFAULTS)));
-  return { usuario: 'v8', nomeExibicao: 'Plano V8', nomeVersao: 'Referência (defaults da planilha)', timestamp: '',
+  return { usuario: 'ref', nomeExibicao: 'Plano ' + PLANO_VERSAO, nomeVersao: 'Referência (defaults da planilha)', timestamp: '',
            resumo: resumoDe(calcular(estadoDoPayload(p))), payload: p };
 }
 
@@ -1469,7 +1520,7 @@ function agruparPorUsuario(docs) {
   return Object.keys(g).sort((a, b) => (ordem.indexOf(a) + 1 || 99) - (ordem.indexOf(b) + 1 || 99)).map(u => ({ u, versoes: g[u] }));
 }
 function linhasComparativo() {
-  return [{ u: 'v8', doc: REF_V8, versoes: null }].concat(
+  return [{ u: 'ref', doc: REF_PLANO, versoes: null }].concat(
     agruparPorUsuario(versoesCmp).map(({ u, versoes }) => ({ u, versoes, doc: versoes[Math.min(escolhaCmp[u] || 0, versoes.length - 1)] })));
 }
 
@@ -1483,7 +1534,7 @@ function renderComparativo() {
     '<tr><th class="txt fixa" rowspan="2">Autor</th><th rowspan="2" class="txt">Versão</th><th rowspan="2">Salva em</th>' +
       CENARIOS.map(s => '<th colspan="4" class="sep" style="color:#fff;background:' + COR[s] + '">' + NOME_CENARIO[s] + '</th>').join('') + '</tr>' +
     '<tr>' + CENARIOS.map(() => ind.map(([, rot], i) => '<th class="' + (i === 0 ? 'sep' : '') + '">' + rot + '</th>').join('')).join('') + '</tr>' +
-    linhas.map(({ u, doc, versoes }) => '<tr class="' + (u === 'v8' ? 'referencia' : '') + '"><td class="txt fixa"><b>' + esc(doc.nomeExibicao) + '</b>' +
+    linhas.map(({ u, doc, versoes }) => '<tr class="' + (u === 'ref' ? 'referencia' : '') + '"><td class="txt fixa"><b>' + esc(doc.nomeExibicao) + '</b>' +
       (doc.modo === 'distribuicao' ? ' <small style="color:var(--muted)" title="Só distribuiu o incremental das demais marcas; o resto é herdado do plano">distribuição</small>' : '') + '</td><td class="txt">' +
       (versoes && versoes.length > 1
         ? '<select class="in" data-u="' + u + '">' + versoes.map((v, i) => '<option value="' + i + '"' + (v === doc ? ' selected' : '') + '>' + esc(v.nomeVersao) + (i === 0 ? ' (mais recente)' : '') + '</option>').join('') + '</select>'
@@ -1519,7 +1570,7 @@ function renderComparativo() {
   const celula = (v, vRef, extra = '') => {
     if (v == null) return '<td class="' + extra + '">–</td>';
     const dif = Math.abs(v - vRef) > 0.5;
-    return '<td class="' + extra + (dif ? ' difere' : '') + '"' + (dif ? ' title="' + (v >= vRef ? '+' : '−') + fmtN0(Math.abs(v - vRef)) + ' vs plano V8"' : '') + '>' + fmtN0(v) + '</td>';
+    return '<td class="' + extra + (dif ? ' difere' : '') + '"' + (dif ? ' title="' + (v >= vRef ? '+' : '−') + fmtN0(Math.abs(v - vRef)) + ' vs plano ' + PLANO_VERSAO + '"' : '') + '>' + fmtN0(v) + '</td>';
   };
   // 3a. mesa de consenso — distribuição por autor nas 6 avenidas das demais marcas
   const idxD = indicesDistrib(DEFAULTS.avenidas);
@@ -1532,7 +1583,7 @@ function renderComparativo() {
     '<tr><th class="txt fixa">Autor</th>' + idxD.map(i => { const av = DEFAULTS.avenidas[i]; return '<th>' + esc(rotuloMarca(av)) + '<br>' + av.canal + '</th>'; }).join('') +
       '<th class="sep">Total</th><th>Saldo vs autorizado</th><th>MC média</th></tr>' +
     linhasD.map(({ l, vals, total, saldo, mcMedia }) =>
-      '<tr class="' + (l.u === 'v8' ? 'referencia' : '') + '"><td class="txt fixa"><b>' + esc(l.doc.nomeExibicao) + '</b>' + (l.doc.modo === 'distribuicao' ? ' <small style="color:var(--muted)">distribuição</small>' : '') + '</td>' +
+      '<tr class="' + (l.u === 'ref' ? 'referencia' : '') + '"><td class="txt fixa"><b>' + esc(l.doc.nomeExibicao) + '</b>' + (l.doc.modo === 'distribuicao' ? ' <small style="color:var(--muted)">distribuição</small>' : '') + '</td>' +
       vals.map((v, k) => celula(v, refD.vals[k])).join('') +
       celula(total, refD.total, 'sep') +
       '<td class="' + (saldo < -0.5 ? 'soma-erro' : '') + '">' + fmtN0(saldo) + '</td>' +
@@ -1615,20 +1666,22 @@ function applyFmts(ws, fmts) {
 function exportarExcel() {
   if (!window.XLSX) { alert('A biblioteca de Excel não carregou (sem internet?).'); return; }
   const maisRecente = new Set(agruparPorUsuario(versoesCmp).map(g => g.versoes[0]));
-  const docs = [REF_V8].concat(versoesCmp.slice().sort((a, b) => a.usuario.localeCompare(b.usuario) || maisNovoPrimeiro(a, b)));
+  const docs = [REF_PLANO].concat(versoesCmp.slice().sort((a, b) => a.usuario.localeCompare(b.usuario) || maisNovoPrimeiro(a, b)));
   const rowsBase = [], rowsResumo = [];
 
   docs.forEach(doc => {
     const est = estadoDoPayload(doc.payload), r = calcular(est);
     const id = { 'Usuário': doc.usuario, 'Nome': doc.nomeExibicao, 'Versão': doc.nomeVersao, 'Modo': doc.modo || 'completo', 'Salva em': doc.timestamp,
-                 'Mais recente': doc === REF_V8 ? 'Referência' : maisRecente.has(doc) ? 'Sim' : 'Não' };
+                 'Mais recente': doc === REF_PLANO ? 'Referência' : maisRecente.has(doc) ? 'Sim' : 'Não' };
     CENARIOS.forEach(s => {
       const x = r[s];
       x.avenidas.forEach(a => rowsBase.push({ ...id, 'Cenário': NOME_CENARIO[s],
         'Marca': a.av.marca, 'Descrição': a.av.desc, 'Canal': a.av.canal,
         'Camada': { inercial: 'Inercial', incremental: 'Incremental', lefruit: 'Le Fruit' }[a.av.camada],
         'Valor anual (entrada)': anualAvenidaDe(est, a.av, s), 'Fat ano (líquido)': a.fatAno,
-        'MC ano': a.mcAno, 'MC %': a.mcPct, 'Ciclo (dias)': a.ciclo }));
+        'MC ano': a.mcAno, 'MC %': a.mcPct, 'Ciclo (dias)': a.ciclo,
+        'CMV %': a.cmvUsado, 'Deduções Σ %': a.av.origem === 'lefruit' ? paramLeFruit(est, s, a.av.canal).ded : a.av.deducoes,
+        ...(gb => ({ 'Impostos %': gb ? gb[0] : null, 'Variáveis %': gb ? gb[1] : null, 'Comunicação %': gb ? gb[2] : null }))(gruposDeducaoBrutos(a.av, s, est)) }));
       rowsResumo.push({ ...id, 'Cenário': NOME_CENARIO[s],
         'Fat líquido': x.fat, 'Fat bruto (memo)': x.fatBruto, 'Cresc. vs 2026': x.cresc, 'MC': x.mc, 'MC %': x.mcPct,
         'Custo fixo': x.cf, 'MOp': x.mop, 'MOp %': x.mopPct, 'Folga vs meta': x.folga, 'NCG pico': x.ncgPico,
@@ -1642,7 +1695,8 @@ function exportarExcel() {
 
   const R$ = '#,##0', PCT = '0.0%';
   const wsBase = XLSX.utils.json_to_sheet(rowsBase);
-  applyFmts(wsBase, { 'Valor anual (entrada)': R$, 'Fat ano (líquido)': R$, 'MC ano': R$, 'MC %': PCT, 'Ciclo (dias)': '0' });
+  applyFmts(wsBase, { 'Valor anual (entrada)': R$, 'Fat ano (líquido)': R$, 'MC ano': R$, 'MC %': PCT, 'Ciclo (dias)': '0',
+                      'CMV %': PCT, 'Deduções Σ %': PCT, 'Impostos %': PCT, 'Variáveis %': PCT, 'Comunicação %': PCT });
   wsBase['!autofilter'] = { ref: wsBase['!ref'] };
   wsBase['!views'] = [{ state: 'frozen', ySplit: 1, topLeftCell: 'A2', activeCell: 'A2', sqref: 'A2' }];
   wsBase['!cols'] = [{wch:10},{wch:16},{wch:26},{wch:22},{wch:12},{wch:13},{wch:16},{wch:26},{wch:7},{wch:12},{wch:16},{wch:16},{wch:14},{wch:8},{wch:10}];
@@ -1663,14 +1717,15 @@ function exportarExcel() {
 }
 
 /* ============================================================
-   PLANO DE REFERÊNCIA (V8)
+   PLANO DE REFERÊNCIA (V9)
    Os números da Bravir NÃO ficam no HTML (repositório público): o plano e
-   os valores de validação moram no Firestore, em simuladores2027_config/planoV8,
-   gravado uma única vez a partir de plano/semear_plano_v8.html (arquivo local,
+   os valores de validação moram no Firestore, em simuladores2027_config/<DOC_PLANO>,
+   gravado uma única vez a partir de plano/semear_plano_vN.html (arquivo local,
    fora do git). Cópia no localStorage permite abrir offline depois da 1ª vez.
    ============================================================ */
 const COLECAO_CONFIG = 'simuladores2027_config';
-const DOC_PLANO = 'planoV8';
+const DOC_PLANO = 'planoV9';   // troque ao semear um plano novo (plano/semear_plano_vN.html)
+let PLANO_VERSAO = '';         // "V9" etc., vem do documento; usado nos rótulos
 
 async function carregarPlano() {
   const cache = lerLocal().plano;
@@ -1692,7 +1747,7 @@ async function carregarPlano() {
    INICIALIZAÇÃO
    ============================================================ */
 (async () => {
-  document.getElementById('banner').innerHTML = '<div class="banner-ok">Carregando o plano V8…</div>';
+  document.getElementById('banner').innerHTML = '<div class="banner-ok">Carregando o plano de referência…</div>';
   montarCabecalho();
   const link = document.getElementById('linkComparar');
   if (VIEW === 'comparar') {
@@ -1705,14 +1760,16 @@ async function carregarPlano() {
 
   const plano = await carregarPlano();
   if (!plano) {
-    document.getElementById('banner').innerHTML = '<div class="banner-erro">Não foi possível carregar o plano V8 do Firebase. ' +
+    document.getElementById('banner').innerHTML = '<div class="banner-erro">Não foi possível carregar o plano de referência (' + DOC_PLANO + ') do Firebase. ' +
       'Na primeira abertura é preciso internet; tente recarregar a página.</div>';
     document.getElementById('telaSimulador').hidden = true;
     return;
   }
   DEFAULTS = JSON.parse(plano.planoJson);
-  REFERENCIA_V8 = JSON.parse(plano.referenciaJson);
-  REF_V8 = montarRefV8();
+  PLANO_VERSAO = plano.versao || '';
+  document.querySelectorAll('.rotPlano').forEach(el => { el.textContent = PLANO_VERSAO; });
+  REFERENCIA = JSON.parse(plano.referenciaJson);
+  REF_PLANO = montarRefPlano();
 
   const teste = testarMotor();
   renderTeste(teste);
